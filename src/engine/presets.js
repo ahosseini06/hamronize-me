@@ -37,6 +37,35 @@ export const FACTORY = [
     shape: 0.6, unison: 3, detune: 10, sub: 0.35, drive: 0.4,
     formant: 4, sib: 0.5, tilt: 0.15, width: 0.5 } },
 
+  { name: 'Dub Chamber', p: {
+    bands: 20, fLow: 110, fHigh: 8000, vAtk: 2, vRel: 20,
+    shape: 0.35, unison: 3, detune: 16, sub: 0.4, drive: 0.3, sib: 0.5,
+    tilt: 0.15, width: 0.6, bpm: 90,
+    vbDlyDiv: 9, vbDlyMix: 0.5, vbDlyFb: 0.62, vbDlyTone: 2600, vbDlyPing: 1,
+    vbRevMix: 0.3, vbRevSize: 0.75, vbRevDamp: 0.55, vbRevPre: 40 } },
+
+  { name: 'Formant Drift', p: {
+    bands: 28, fLow: 120, fHigh: 9500, qMul: 1.3, vAtk: 3, vRel: 26,
+    shape: 0.3, unison: 5, detune: 18, sub: 0.3, drive: 0.25, sib: 0.45,
+    tilt: 0.2, width: 0.7, bpm: 120,
+    lfo1Rate: 14, lfo1Wave: 0, lfo1Depth: 0.55, lfo1Dest: 1,
+    lfo2Rate: 13, lfo2Wave: 1, lfo2Depth: 0.25, lfo2Dest: 6,
+    vbRevMix: 0.22, vbRevSize: 0.7 } },
+
+  { name: 'Cathedral Choir', p: {
+    bands: 32, fLow: 110, fHigh: 10000, vAtk: 14, vRel: 110,
+    shape: 0.1, unison: 7, detune: 24, sub: 0.2, air: 0.12, drive: 0.1,
+    sib: 0.4, tilt: 0.25, width: 1, atk: 60, rel: 600, master: -6,
+    vbRevMix: 0.55, vbRevSize: 0.95, vbRevDamp: 0.3, vbRevPre: 60,
+    vaRevMix: 0.3, vaRevSize: 0.9, dry: 0.12 } },
+
+  { name: 'Stutter Gate', p: {
+    bands: 24, fLow: 120, fHigh: 9000, vAtk: 1, vRel: 8,
+    shape: 0.55, unison: 5, detune: 20, sub: 0.35, drive: 0.35, sib: 0.5,
+    width: 0.5, bpm: 128,
+    lfo1Rate: 2, lfo1Wave: 4, lfo1Depth: 0.9, lfo1Dest: 11,
+    vbDlyDiv: 5, vbDlyMix: 0.3, vbDlyFb: 0.45, vbDlyPing: 1 } },
+
   { name: 'Clean Speech', p: {
     bands: 32, fLow: 110, fHigh: 11000, qMul: 0.9, vAtk: 1.2, vRel: 9,
     shape: 0.25, unison: 3, detune: 8, sub: 0.3, air: 0.08, drive: 0.15,

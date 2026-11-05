@@ -140,23 +140,111 @@
         </div>
       </section>
 
-      <section class="panel" data-accent="neutral">
-        <h2 class="panel-head">OUTPUT<small>mix</small></h2>
-        <div class="panel-body">
-          <div class="knobs">
-            <vk-knob param="vocLevel"></vk-knob>
-            <vk-knob param="dry"></vk-knob>
-            <vk-knob param="bleed"></vk-knob>
-            <vk-knob param="width"></vk-knob>
-            <vk-knob param="bright"></vk-knob>
-            <vk-knob param="master"></vk-knob>
-            <vk-knob param="limThresh"></vk-knob>
-          </div>
-          <vk-toggle param="limiter"></vk-toggle>
-        </div>
-      </section>
     </div>
   </main>
+
+  <div class="fxrow">
+    <section class="panel" data-accent="cool">
+      <h2 class="panel-head">MODULATION<small>tempo-synced</small></h2>
+      <div class="panel-body mod-body">
+        <div class="tempo">
+          <vk-knob param="bpm"></vk-knob>
+          <p class="tempo-note">Echo times and LFO rates follow this.</p>
+        </div>
+        <div class="lfos">
+          <div class="lfo">
+            <div class="sub-head">
+              <span>LFO 1</span>
+              <i class="lfo-meter"><b data-lfo="0"></b></i>
+            </div>
+            <div class="knobs">
+              <vk-knob param="lfo1Rate"></vk-knob>
+              <vk-knob param="lfo1Wave"></vk-knob>
+              <vk-knob param="lfo1Depth"></vk-knob>
+              <vk-knob param="lfo1Phase"></vk-knob>
+            </div>
+            <vk-select param="lfo1Dest"></vk-select>
+          </div>
+          <div class="lfo">
+            <div class="sub-head">
+              <span>LFO 2</span>
+              <i class="lfo-meter"><b data-lfo="1"></b></i>
+            </div>
+            <div class="knobs">
+              <vk-knob param="lfo2Rate"></vk-knob>
+              <vk-knob param="lfo2Wave"></vk-knob>
+              <vk-knob param="lfo2Depth"></vk-knob>
+              <vk-knob param="lfo2Phase"></vk-knob>
+            </div>
+            <vk-select param="lfo2Dest"></vk-select>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="panel" data-accent="warm">
+      <h2 class="panel-head">SPACE &middot; VOICE<small>dry vocal bus</small></h2>
+      <div class="panel-body fx-body">
+        <div class="fx-group">
+          <div class="sub-head"><span>ECHO</span></div>
+          <div class="knobs">
+            <vk-knob param="vaDlyDiv"></vk-knob>
+            <vk-knob param="vaDlyFb"></vk-knob>
+            <vk-knob param="vaDlyTone"></vk-knob>
+            <vk-knob param="vaDlyMix"></vk-knob>
+          </div>
+          <vk-toggle param="vaDlyPing"></vk-toggle>
+        </div>
+        <div class="fx-group">
+          <div class="sub-head"><span>REVERB</span></div>
+          <div class="knobs">
+            <vk-knob param="vaRevSize"></vk-knob>
+            <vk-knob param="vaRevDamp"></vk-knob>
+            <vk-knob param="vaRevPre"></vk-knob>
+            <vk-knob param="vaRevMix"></vk-knob>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="panel" data-accent="cool">
+      <h2 class="panel-head">SPACE &middot; VOCODER<small>vocoded bus</small></h2>
+      <div class="panel-body fx-body">
+        <div class="fx-group">
+          <div class="sub-head"><span>ECHO</span></div>
+          <div class="knobs">
+            <vk-knob param="vbDlyDiv"></vk-knob>
+            <vk-knob param="vbDlyFb"></vk-knob>
+            <vk-knob param="vbDlyTone"></vk-knob>
+            <vk-knob param="vbDlyMix"></vk-knob>
+          </div>
+          <vk-toggle param="vbDlyPing"></vk-toggle>
+        </div>
+        <div class="fx-group">
+          <div class="sub-head"><span>REVERB</span></div>
+          <div class="knobs">
+            <vk-knob param="vbRevSize"></vk-knob>
+            <vk-knob param="vbRevDamp"></vk-knob>
+            <vk-knob param="vbRevPre"></vk-knob>
+            <vk-knob param="vbRevMix"></vk-knob>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="panel" data-accent="neutral">
+      <h2 class="panel-head">OUTPUT<small>mix</small></h2>
+      <div class="panel-body">
+        <div class="knobs">
+          <vk-knob param="vocLevel"></vk-knob>
+          <vk-knob param="dry"></vk-knob>
+          <vk-knob param="bleed"></vk-knob>
+          <vk-knob param="width"></vk-knob>
+          <vk-knob param="bright"></vk-knob>
+          <vk-knob param="master"></vk-knob>
+          <vk-knob param="limThresh"></vk-knob>
+        </div>
+        <vk-toggle param="limiter"></vk-toggle>
+      </div>
+    </section>
+  </div>
 
   <footer class="bottom">
     <section class="panel" data-accent="cool">

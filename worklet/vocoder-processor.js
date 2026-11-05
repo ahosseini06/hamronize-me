@@ -25,6 +25,7 @@ const RQ = 128;               // render quantum, fixed by the spec
 const VIS = {
   inLevel: 0, outL: 1, outR: 2, carrier: 3, voicing: 4,
   load: 5, voices: 6, bands: 7, gate: 8, limit: 9, busyUs: 10,
+  lfo1: 11, lfo2: 12,
   env: 16,                    // MAX_BANDS floats: modulator envelope per band
   out: 16 + MAX_BANDS,        // MAX_BANDS floats: synthesised band level
 };
@@ -70,6 +71,168 @@ function safeClip(x) {
 
 const dbToGain = db => Math.pow(10, db / 20);
 
+// ---------------------------------------------------------------- modulation
+
+function lfoShape(wave, t, sh) {
+  switch (wave) {
+    case 1: return 4 * Math.abs(t - 0.5) - 1;   // triangle
+    case 2: return 1 - 2 * t;                   // saw down
+    case 3: return 2 * t - 1;                   // ramp up
+    case 4: return t < 0.5 ? 1 : -1;            // square
+    case 5: return sh;                          // sample & hold
+    default: return Math.sin(t * 2 * Math.PI);  // sine
+  }
+}
+
+// ---------------------------------------------------------------- echo
+
+class StereoDelay {
+  constructor(maxSamples) {
+    this.n = maxSamples;
+    this.bufL = new Float32Array(maxSamples);
+    this.bufR = new Float32Array(maxSamples);
+    this.w = 0;
+    this.pos = 0;
+    this.lpL = 0; this.lpR = 0;
+    this.primed = false;
+    // [length, feedback, tone, mix, pingPong] - see runBus().
+    this.cfg = new Float64Array(5);
+  }
+  clear() {
+    this.bufL.fill(0); this.bufR.fill(0);
+    this.lpL = this.lpR = 0; this.primed = false;
+  }
+  // Wet is added rather than crossfaded, so raising ECHO never ducks the source.
+  process(L, R) {
+    const c = this.cfg;
+    const n = this.n, bl = this.bufL, br = this.bufR;
+    const t = clamp(c[0], 2, n - 3);
+    if (!this.primed) { this.pos = t; this.primed = true; }
+    const f = clamp(c[1], 0, 0.95);
+    const tone = c[2], mix = c[3], ping = c[4] >= 0.5;
+    let w = this.w, pos = this.pos, lpL = this.lpL, lpR = this.lpR;
+
+    for (let i = 0; i < RQ; i++) {
+      // Glide to the new length instead of jumping: a tempo or division change
+      // bends the repeats like tape rather than clicking.
+      pos += (t - pos) * 0.0006;
+      let rp = w - pos;
+      if (rp < 0) rp += n;
+      const i0 = rp | 0;
+      const frac = rp - i0;
+      const i1 = i0 + 1 >= n ? 0 : i0 + 1;
+      let dL = bl[i0] + (bl[i1] - bl[i0]) * frac;
+      let dR = br[i0] + (br[i1] - br[i0]) * frac;
+      // One-pole in the feedback path: each repeat lands darker than the last.
+      lpL += (dL - lpL) * tone; dL = lpL;
+      lpR += (dR - lpR) * tone; dR = lpR;
+
+      const inL = L[i], inR = R[i];
+      if (ping) {
+        const m = (inL + inR) * 0.5;
+        bl[w] = m + dR * f;        // input enters left, feedback crosses over
+        br[w] = dL * f;
+      } else {
+        bl[w] = inL + dL * f;
+        br[w] = inR + dR * f;
+      }
+      w = w + 1 >= n ? 0 : w + 1;
+
+      L[i] = inL + dL * mix;
+      R[i] = inR + dR * mix;
+    }
+    this.w = w; this.pos = pos; this.lpL = lpL; this.lpR = lpR;
+  }
+}
+
+// ---------------------------------------------------------------- reverb
+// Schroeder/Freeverb topology: eight damped comb filters in parallel into four
+// allpasses in series, with the right channel's delays offset so the tail is
+// stereo. Cheap, well behaved, and no impulse response to ship.
+
+const RV_COMB = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617];
+const RV_AP = [556, 441, 341, 225];
+const RV_SPREAD = 23;
+const RV_IN = 0.015;     // Freeverb's fixed input gain
+const RV_WET = 3.0;      // makeup so a mix of 1 is a usable wet level
+
+class Reverb {
+  constructor(sr) {
+    const k = sr / 44100;
+    const mk = (lens, off) =>
+      lens.map(l => new Float32Array(Math.max(8, Math.round((l + off) * k))));
+    this.cL = mk(RV_COMB, 0);       this.cR = mk(RV_COMB, RV_SPREAD);
+    this.aL = mk(RV_AP, 0);         this.aR = mk(RV_AP, RV_SPREAD);
+    this.ciL = new Int32Array(8);   this.ciR = new Int32Array(8);
+    this.aiL = new Int32Array(4);   this.aiR = new Int32Array(4);
+    this.fsL = new Float64Array(8); this.fsR = new Float64Array(8);
+    this.preN = Math.ceil(0.22 * sr);
+    this.preL = new Float32Array(this.preN);
+    this.preR = new Float32Array(this.preN);
+    this.pw = 0;
+    // [size, damp, predelaySamples, mix] - see runBus().
+    this.cfg = new Float64Array(4);
+  }
+  clear() {
+    for (const b of this.cL) b.fill(0);
+    for (const b of this.cR) b.fill(0);
+    for (const b of this.aL) b.fill(0);
+    for (const b of this.aR) b.fill(0);
+    this.fsL.fill(0); this.fsR.fill(0);
+    this.preL.fill(0); this.preR.fill(0);
+  }
+  process(L, R) {
+    const c = this.cfg;
+    const fb = clamp(c[0], 0, 1) * 0.28 + 0.7;
+    const d1 = clamp(c[1], 0, 1) * 0.4, d2 = 1 - d1;
+    const preN = this.preN;
+    const ps = Math.min(preN - 2, Math.max(0, c[2] | 0));
+    const wet = c[3] * RV_WET;
+    const cL = this.cL, cR = this.cR, aL = this.aL, aR = this.aR;
+    const fsL = this.fsL, fsR = this.fsR;
+    let pw = this.pw;
+
+    for (let i = 0; i < RQ; i++) {
+      const inL = L[i], inR = R[i];
+      this.preL[pw] = inL; this.preR[pw] = inR;
+      let rp = pw - ps;
+      if (rp < 0) rp += preN;
+      const input = (this.preL[rp] + this.preR[rp]) * RV_IN;
+      pw = pw + 1 >= preN ? 0 : pw + 1;
+
+      let oL = 0, oR = 0;
+      for (let c = 0; c < 8; c++) {
+        const b = cL[c], idx = this.ciL[c], y = b[idx];
+        fsL[c] = y * d2 + fsL[c] * d1;
+        b[idx] = input + fsL[c] * fb;
+        this.ciL[c] = idx + 1 >= b.length ? 0 : idx + 1;
+        oL += y;
+
+        const b2 = cR[c], idx2 = this.ciR[c], y2 = b2[idx2];
+        fsR[c] = y2 * d2 + fsR[c] * d1;
+        b2[idx2] = input + fsR[c] * fb;
+        this.ciR[c] = idx2 + 1 >= b2.length ? 0 : idx2 + 1;
+        oR += y2;
+      }
+      for (let a = 0; a < 4; a++) {
+        const b = aL[a], idx = this.aiL[a], bo = b[idx];
+        b[idx] = oL + bo * 0.5;
+        oL = bo - oL;
+        this.aiL[a] = idx + 1 >= b.length ? 0 : idx + 1;
+
+        const b2 = aR[a], idx2 = this.aiR[a], bo2 = b2[idx2];
+        b2[idx2] = oR + bo2 * 0.5;
+        oR = bo2 - oR;
+        this.aiR[a] = idx2 + 1 >= b2.length ? 0 : idx2 + 1;
+      }
+
+      L[i] = inL + oL * wet;
+      R[i] = inR + oR * wet;
+    }
+    this.pw = pw;
+  }
+}
+
 // ---------------------------------------------------------------- voice
 
 class Voice {
@@ -108,8 +271,42 @@ class VocoderProcessor extends AudioWorkletProcessor {
     this.pTarget = o.paramSAB ? new Float32Array(o.paramSAB)
                               : new Float32Array(this.paramCount);
     if (!o.paramSAB && o.initial) this.pTarget.set(o.initial);
-    this.p = new Float64Array(this.paramCount);   // smoothed, what the DSP reads
+    this.p = new Float64Array(this.paramCount);   // smoothed user values
     this.p.set(this.pTarget);
+    // pm = p with LFO modulation folded in. Everything downstream reads pm, so
+    // routing a destination does not require touching that destination's code.
+    this.pm = new Float64Array(this.paramCount);
+    this.pm.set(this.p);
+
+    const ct = o.curves || {};
+    this.pMin = ct.min || new Float32Array(this.paramCount);
+    this.pMax = ct.max || new Float32Array(this.paramCount);
+    this.pCurve = ct.curve || new Int32Array(this.paramCount);
+    this.pPow = ct.pow || new Float32Array(this.paramCount);
+    this.modDest = o.modDest || [];
+    this.divisions = o.divisions || [1];
+
+    this.lfoIds = [
+      { rate: this.P.lfo1Rate, wave: this.P.lfo1Wave, depth: this.P.lfo1Depth,
+        phase: this.P.lfo1Phase, dest: this.P.lfo1Dest },
+      { rate: this.P.lfo2Rate, wave: this.P.lfo2Wave, depth: this.P.lfo2Depth,
+        phase: this.P.lfo2Phase, dest: this.P.lfo2Dest },
+    ];
+    this.lfoPhase = new Float64Array(2);
+    this.lfoPrev = new Float64Array(2);
+    this.lfoSH = new Float64Array(2);
+    this.lfoVal = new Float64Array(2);
+
+    this.busA = {
+      dlyDiv: this.P.vaDlyDiv, dlyFb: this.P.vaDlyFb, dlyTone: this.P.vaDlyTone,
+      dlyMix: this.P.vaDlyMix, dlyPing: this.P.vaDlyPing, revSize: this.P.vaRevSize,
+      revDamp: this.P.vaRevDamp, revPre: this.P.vaRevPre, revMix: this.P.vaRevMix,
+    };
+    this.busB = {
+      dlyDiv: this.P.vbDlyDiv, dlyFb: this.P.vbDlyFb, dlyTone: this.P.vbDlyTone,
+      dlyMix: this.P.vbDlyMix, dlyPing: this.P.vbDlyPing, revSize: this.P.vbRevSize,
+      revDamp: this.P.vbRevDamp, revPre: this.P.vbRevPre, revMix: this.P.vbRevMix,
+    };
     this.midi = o.midiSAB ? new Int32Array(o.midiSAB) : null;
     this.vis = o.visSAB ? new Float32Array(o.visSAB) : new Float32Array(VIS_LEN);
     this.fallbackMidi = [];
@@ -147,6 +344,16 @@ class VocoderProcessor extends AudioWorkletProcessor {
     this.envBuf = new Float32Array(MAX_BANDS * RQ);
     this.blockMax = new Float64Array(MAX_BANDS);
     this.outMax = new Float64Array(MAX_BANDS);
+    // The two effect busses, kept separate end to end.
+    this.vocL = new Float32Array(RQ);
+    this.vocR = new Float32Array(RQ);
+    this.dryL = new Float32Array(RQ);
+    this.dryR = new Float32Array(RQ);
+    const maxDelay = Math.ceil(4.2 * this.sr);   // one bar at 60 bpm, plus slack
+    this.dlyA = new StereoDelay(maxDelay);
+    this.dlyB = new StereoDelay(maxDelay);
+    this.revA = new Reverb(this.sr);
+    this.revB = new Reverb(this.sr);
 
     // --- input conditioning ------------------------------------------------
     this.hp = new Float64Array(2);
@@ -216,6 +423,8 @@ class VocoderProcessor extends AudioWorkletProcessor {
     this.aState.fill(0); this.sState.fill(0); this.sStateR.fill(0); this.env.fill(0);
     this.hp.fill(0); this.lpL = this.lpR = 0; this.limGain = 1;
     this.envBuf.fill(0);
+    this.dlyA.clear(); this.dlyB.clear();
+    this.revA.clear(); this.revB.clear();
     for (const v of this.voices) v.reset();
     this.noteStack.length = 0;
   }
@@ -386,10 +595,92 @@ class VocoderProcessor extends AudioWorkletProcessor {
     v.subPhase = Math.random();
   }
 
+  // -------------------------------------------------------------- modulation
+
+  // Normalised <-> real value in a parameter's own curve, mirroring params.js.
+  toNormIdx(i, v) {
+    const lo = this.pMin[i], hi = this.pMax[i], c = this.pCurve[i];
+    const x = clamp(v, lo, hi);
+    if (c === 1) return Math.log(x / lo) / Math.log(hi / lo);
+    if (c === 2) return Math.pow((x - lo) / (hi - lo), 1 / this.pPow[i]);
+    return (x - lo) / (hi - lo);
+  }
+  fromNormIdx(i, t) {
+    const lo = this.pMin[i], hi = this.pMax[i], c = this.pCurve[i];
+    if (c === 1) return lo * Math.pow(hi / lo, t);
+    if (c === 2) return lo + (hi - lo) * Math.pow(t, this.pPow[i]);
+    return lo + (hi - lo) * t;
+  }
+
+  updateLfos() {
+    const p = this.p, P = this.P;
+    const beatsPerSec = clamp(p[P.bpm], 20, 400) / 60;
+    const nd = this.divisions.length;
+    for (let k = 0; k < 2; k++) {
+      const ids = this.lfoIds[k];
+      const beats = this.divisions[clamp(Math.round(p[ids.rate]), 0, nd - 1)] || 1;
+      const hz = beatsPerSec / beats;
+      let ph = this.lfoPhase[k] + (hz * RQ) / this.sr;
+      ph -= Math.floor(ph);
+      this.lfoPhase[k] = ph;
+
+      let eff = ph + p[ids.phase] / 360;
+      eff -= Math.floor(eff);
+      // Sample & hold latches a new value each time the shifted phase wraps.
+      if (eff < this.lfoPrev[k]) this.lfoSH[k] = Math.random() * 2 - 1;
+      this.lfoPrev[k] = eff;
+      this.lfoVal[k] = lfoShape(Math.round(p[ids.wave]), eff, this.lfoSH[k]);
+    }
+  }
+
+  applyMod() {
+    const p = this.p, pm = this.pm;
+    pm.set(p);
+    for (let k = 0; k < 2; k++) {
+      const ids = this.lfoIds[k];
+      const depth = p[ids.depth];
+      if (depth <= 1e-4) continue;
+      const d = Math.round(p[ids.dest]);
+      const pi = d > 0 && d < this.modDest.length ? this.modDest[d] : -1;
+      if (pi < 0) continue;
+      // Modulate in the destination's own curve space: a sweep over a
+      // logarithmic frequency control then moves by musical interval rather
+      // than piling up at the top of the range.
+      const t = this.toNormIdx(pi, p[pi]) + this.lfoVal[k] * depth * 0.5;
+      pm[pi] = this.fromNormIdx(pi, t < 0 ? 0 : t > 1 ? 1 : t);
+    }
+  }
+
+  // One effect bus: echo into reverb, fully independent of the other bus.
+  runBus(L, R, delay, reverb, ids, beatSec) {
+    const p = this.pm, nd = this.divisions.length;
+    const beats = this.divisions[clamp(Math.round(p[ids.dlyDiv]), 0, nd - 1)] || 1;
+    const samples = beats * beatSec * this.sr;
+    const fc = clamp(p[ids.dlyTone], 100, this.sr * 0.45);
+
+    // Settings travel through typed arrays rather than as arguments: a double
+    // passed to a function V8 does not inline is boxed, and that boxing is the
+    // only garbage this hot path would otherwise produce.
+    const dc = delay.cfg;
+    dc[0] = samples;
+    dc[1] = p[ids.dlyFb];
+    dc[2] = 1 - Math.exp(-2 * Math.PI * fc / this.sr);
+    dc[3] = clamp(p[ids.dlyMix], 0, 1);
+    dc[4] = p[ids.dlyPing];
+    delay.process(L, R);
+
+    const rc = reverb.cfg;
+    rc[0] = p[ids.revSize];
+    rc[1] = p[ids.revDamp];
+    rc[2] = (p[ids.revPre] * 0.001 * this.sr) | 0;
+    rc[3] = clamp(p[ids.revMix], 0, 1);
+    reverb.process(L, R);
+  }
+
   // -------------------------------------------------------------- filterbank
 
   rebuildBank() {
-    const P = this.P, p = this.p;
+    const P = this.P, p = this.pm;
     const nb = clamp(Math.round(p[P.bands]), 4, MAX_BANDS);
     const lo = clamp(p[P.fLow], 20, 2000);
     const hi = clamp(p[P.fHigh], lo * 2, this.sr * 0.47);
@@ -425,7 +716,7 @@ class VocoderProcessor extends AudioWorkletProcessor {
   }
 
   updateDerived() {
-    const P = this.P, p = this.p, nb = this.numBands;
+    const P = this.P, p = this.pm, nb = this.numBands;
 
     // Sibilance crossover -> first band treated as "high".
     const sh = p[P.sibHz];
@@ -466,7 +757,7 @@ class VocoderProcessor extends AudioWorkletProcessor {
   // -------------------------------------------------------------- synth
 
   renderCarrier() {
-    const P = this.P, p = this.p, sr = this.sr;
+    const P = this.P, p = this.pm, sr = this.sr;
     const carL = this.carL, carR = this.carR;
     carL.fill(0); carR.fill(0);
 
@@ -667,7 +958,9 @@ class VocoderProcessor extends AudioWorkletProcessor {
 
     this.readMidi();
     this.readParams();
-    const P = this.P, p = this.p;
+    this.updateLfos();
+    this.applyMod();
+    const P = this.P, p = this.pm;
 
     // HOLD released -> let everything that is no longer physically held go.
     const hold = p[P.hold] >= 0.5 ? 1 : 0;
@@ -829,6 +1122,21 @@ class VocoderProcessor extends AudioWorkletProcessor {
     const dHf = (hfGain - pg[4]) / RQ;
     let cVoc = pg[0], cDry = pg[1], cBleed = pg[2], cMaster = pg[3], cHf = pg[4];
 
+    // --- the two effect busses, kept apart all the way to the summing point
+    const vocL = this.vocL, vocR = this.vocR, dryL = this.dryL, dryR = this.dryR;
+    for (let i = 0; i < RQ; i++) {
+      cVoc += dVoc; cDry += dDry;
+      vocL[i] = accL[i] * cVoc;
+      vocR[i] = accR[i] * cVoc;
+      const d = mod[i] * cDry;
+      dryL[i] = d; dryR[i] = d;
+    }
+
+    // Echo into reverb, independently per bus.
+    const beatSec = 60 / clamp(p[P.bpm], 20, 400);
+    this.runBus(dryL, dryR, this.dlyA, this.revA, this.busA, beatSec);
+    this.runBus(vocL, vocR, this.dlyB, this.revB, this.busB, beatSec);
+
     const limOn = p[P.limiter] >= 0.5;
     const ceiling = dbToGain(p[P.limThresh]);
     const lRel = poleCoef(120, sr);
@@ -837,11 +1145,10 @@ class VocoderProcessor extends AudioWorkletProcessor {
     let peakL = 0, peakR = 0, carPeak = 0, minGain = 1;
 
     for (let n = 0; n < RQ; n++) {
-      cVoc += dVoc; cDry += dDry; cBleed += dBleed; cMaster += dMaster; cHf += dHf;
+      cBleed += dBleed; cMaster += dMaster; cHf += dHf;
 
-      const dryC = mod[n] * cDry;
-      let l = accL[n] * cVoc + dryC + carL[n] * cBleed;
-      let r = accR[n] * cVoc + dryC + carR[n] * cBleed;
+      let l = vocL[n] + dryL[n] + carL[n] * cBleed;
+      let r = vocR[n] + dryR[n] + carR[n] * cBleed;
 
       // Tilt shelf: one-pole split, high band scaled.
       lpL += (l - lpL) * lpCoef;
@@ -924,6 +1231,8 @@ class VocoderProcessor extends AudioWorkletProcessor {
       vs[VIS.voicing] = voiceAvg;
       vs[VIS.load] = this.load;
       vs[VIS.busyUs] = this.timing[2];
+      vs[VIS.lfo1] = this.lfoVal[0];
+      vs[VIS.lfo2] = this.lfoVal[1];
       vs[VIS.voices] = active;
       vs[VIS.bands] = nb;
       vs[VIS.gate] = this.gateGain;

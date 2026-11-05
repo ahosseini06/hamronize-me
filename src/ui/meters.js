@@ -56,6 +56,7 @@ export class Meters {
     this.clips = {};
     for (const el of root.querySelectorAll('[data-c]')) this.clips[el.dataset.c] = el;
     this.frame = 0;
+    this.lfoDots = [...document.querySelectorAll('[data-lfo]')];
   }
 
   draw() {
@@ -75,6 +76,11 @@ export class Meters {
     if (Math.max(vis[V.outL], vis[V.outR]) >= 0.995) this.clipUntil.out = now + 900;
     this.clips.in.classList.toggle('on', now < this.clipUntil.in);
     this.clips.out.classList.toggle('on', now < this.clipUntil.out);
+
+    for (const d of this.lfoDots) {
+      const v = vis[d.dataset.lfo === '0' ? V.lfo1 : V.lfo2] || 0;
+      d.style.transform = `translateX(calc(-50% + ${(v * 20).toFixed(1)}px))`;
+    }
 
     // Text is far cheaper to update at 10 Hz and reads better when stable.
     if (++this.frame % 6 === 0) {

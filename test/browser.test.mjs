@@ -8,7 +8,7 @@ import { join } from 'node:path';
 
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = Number(process.env.PORT || 5199);
-const CDP_PORT = 9311;
+const CDP_PORT = Number(process.env.CDP_PORT || 9311);
 const URL_ = `http://localhost:${PORT}/`;
 
 let pass = 0, fail = 0;
@@ -165,8 +165,8 @@ try {
   ok('cross-origin isolated in the page', await cdp.eval('crossOriginIsolated') === true);
   ok('custom elements registered',
      await cdp.eval('!!customElements.get("vk-knob") && !!customElements.get("vk-seg")'));
-  ok('all 42 knob/seg/toggle widgets built',
-     await cdp.eval('document.querySelectorAll("vk-knob,vk-seg,vk-toggle").length') === 42);
+  ok('all 71 controls built',
+     await cdp.eval('document.querySelectorAll("vk-knob,vk-seg,vk-toggle,vk-select").length') === 71);
   ok('no boot error shown', await cdp.eval('document.querySelector("#bootError").hidden') === true);
 
   // ---- engage
@@ -413,7 +413,107 @@ try {
   ok('hero canvas sized and DPR-scaled',
      layout.canvas.w > 300 && layout.canvasBacking.w >= layout.canvas.w,
      JSON.stringify(layout));
-  ok('all eight panels present', layout.panels === 8, `panels=${layout.panels}`);
+  ok('all eleven panels present', layout.panels === 11, `panels=${layout.panels}`);
+
+  // Fitting the viewport is worthless if a column is quietly clipping content.
+  const clipped = await cdp.eval(`(() => {
+    const bad = [];
+    for (const el of document.querySelectorAll('.col, .panel, .panel-body, .fxrow, .bottom')) {
+      if (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) {
+        const h = el.querySelector('.panel-head');
+        bad.push((h ? h.firstChild.textContent.trim() : el.className) +
+                 ' ' + el.scrollHeight + '/' + el.clientHeight +
+                 ' ' + el.scrollWidth + '/' + el.clientWidth);
+      }
+    }
+    return bad;
+  })()`);
+  ok('nothing is clipped inside a panel or column', clipped.length === 0,
+     JSON.stringify(clipped));
+
+  // ---- LFO runs, is tempo-locked, and reaches its destination
+  await cdp.eval(`__vox.store.setAll(__vox.presets.valuesFor(__vox.presets.FACTORY[0]));
+    __vox.store.set('bpm', 120);
+    __vox.store.set('lfo1Rate', __vox.params.DIVISIONS.findIndex(d => d.label === '1/4'));
+    __vox.store.set('lfo1Wave', 0);
+    __vox.store.set('lfo1Depth', 1);
+    __vox.store.set('lfo1Dest', 1);`);
+  await sleep(400);
+  const lfoTrace = await cdp.eval(`(async () => {
+    const e = __vox.engine, V = e.visLayout;
+    const out = [];
+    for (let i = 0; i < 90; i++) {
+      out.push(e.readVis()[V.lfo1]);
+      await new Promise(r => setTimeout(r, 12));
+    }
+    return out;
+  })()`);
+  const lmin = Math.min(...lfoTrace), lmax = Math.max(...lfoTrace);
+  ok('LFO telemetry is live', lmax - lmin > 1.2, `range ${lmin.toFixed(2)}..${lmax.toFixed(2)}`);
+  ok('LFO stays in [-1,1]', lmin >= -1.001 && lmax <= 1.001,
+     `${lmin.toFixed(3)}..${lmax.toFixed(3)}`);
+  ok('LFO indicator is moving',
+     await cdp.eval(`(async () => {
+       const d = document.querySelector('[data-lfo="0"]');
+       const a = d.style.transform;
+       await new Promise(r => setTimeout(r, 180));
+       return a !== d.style.transform;
+     })()`));
+
+  // Destination dropdown writes through the store.
+  ok('destination select routes the LFO',
+     await cdp.eval(`(() => {
+       const s = document.querySelector('vk-select[param="lfo2Dest"]').querySelector('select');
+       s.value = '4'; s.dispatchEvent(new Event('change'));
+       return __vox.engine.getParam('lfo2Dest');
+     })()`) === 4);
+  await cdp.eval("__vox.store.set('lfo1Depth', 0); __vox.store.set('lfo2Dest', 0)");
+
+  // ---- both effect busses run without upsetting the engine
+  await cdp.eval(`__vox.store.set('dry', 0.5);
+    ['va','vb'].forEach(b => {
+      __vox.store.set(b + 'DlyMix', 0.6);
+      __vox.store.set(b + 'RevMix', 0.6);
+      __vox.store.set(b + 'DlyFb', 0.6);
+    });
+    [45, 52, 57].forEach(n => __vox.engine.noteOn(n, 100));`);
+  await sleep(1800);
+  const fxState = await cdp.eval(`(() => {
+    const e = __vox.engine, V = e.visLayout, v = e.readVis();
+    return { outL: v[V.outL], outR: v[V.outR], load: v[V.load],
+             finite: [...v].every(Number.isFinite) };
+  })()`);
+  ok('output still finite with both busses wet', fxState.finite);
+  ok('effects produce output', Math.max(fxState.outL, fxState.outR) > 1e-4,
+     `L=${fxState.outL} R=${fxState.outR}`);
+  ok('load stays reasonable with everything on', fxState.load < 0.5,
+     `load=${(fxState.load * 100).toFixed(1)}%`);
+  console.log(`  dsp load, both FX busses + LFO: ${(fxState.load * 100).toFixed(1)}%`);
+
+  // Reverb should hold the sound up after the voices are cut.
+  await cdp.eval("__vox.store.set('vbRevMix', 1); __vox.store.set('vbRevSize', 0.95)");
+  await sleep(900);
+  await cdp.eval('__vox.engine.panic()');
+  await sleep(260);
+  const ringing = await cdp.eval('__vox.engine.readVis()[__vox.engine.visLayout.outL]');
+  ok('reverb tail outlives the notes', ringing > 1e-5, `tail=${ringing}`);
+
+  await cdp.eval('__vox.store.setAll(__vox.presets.valuesFor(__vox.presets.FACTORY[0]))');
+  await sleep(300);
+
+  // ---- a preset that uses the new sections restores all of it
+  const dub = await cdp.eval(`(() => {
+    const p = __vox.presets.FACTORY.find(x => x.name === 'Dub Chamber');
+    __vox.store.setAll(__vox.presets.valuesFor(p));
+    const e = __vox.engine;
+    return { bpm: e.getParam('bpm'), mix: e.getParam('vbDlyMix'),
+             ping: e.getParam('vbDlyPing'), verb: e.getParam('vbRevMix'),
+             voiceDry: e.getParam('vaDlyMix') };
+  })()`);
+  ok('preset restores tempo and bus effects',
+     dub.bpm === 90 && Math.abs(dub.mix - 0.5) < 1e-6 && dub.ping === 1 &&
+     Math.abs(dub.verb - 0.3) < 1e-6 && dub.voiceDry === 0, JSON.stringify(dub));
+  await cdp.eval('__vox.store.setAll(__vox.presets.valuesFor(__vox.presets.FACTORY[0]))');
 
   // ---- readouts must not overflow their 54px cells
   const overflow = await cdp.eval(`(() => {

@@ -60,9 +60,19 @@ main thread                     │ audio render thread
  meters, spectrum ◀──SAB────────│  telemetry
                                 │
                                 │  mic ─▶ analysis bank ─┐
-                                │                        ├▶ per-band VCA ─▶ out
-                                │  MIDI ─▶ synth ───────▶┘
+                                │                        ├▶ per-band VCA ─┐
+                                │  MIDI ─▶ synth ───────▶┘                │
+                                │                                         ▼
+                                │   voice bus ─▶ echo ─▶ reverb ─┐   vocoder bus
+                                │                                ├─▶ ─▶ echo ─▶ reverb
+                                │                                ▼
+                                │                       sum ─▶ tilt ─▶ limiter ─▶ out
 ```
+
+The dry voice and the vocoded signal are **separate busses all the way to the
+summing point**, each with its own echo and reverb. Wet is *added* rather than
+crossfaded, so raising ECHO or REVERB never ducks the source, and a mix of zero
+is bit-identical to bypass.
 
 The main thread never touches a sample. Control data moves through
 `SharedArrayBuffer`, which is why `server.mjs` sets `Cross-Origin-Opener-Policy`
@@ -92,9 +102,27 @@ and `Cross-Origin-Embedder-Policy` — without cross-origin isolation
 - **Limiter** — instantaneous attack, exponential release. Without lookahead
   that is the only way to actually guarantee the ceiling, and lookahead would
   cost latency.
+- **LFOs** — two, locked to TEMPO by rhythmic division (1/32 through 4 bars,
+  with dotted and triplet values). Sine, triangle, saw, ramp, square, sample &
+  hold, each with a phase offset so the two can run out of step.
+- **Modulation routing** — an LFO moves its destination **in that parameter's
+  own curve space**. Sweeping SIB FREQ therefore travels by musical interval
+  rather than piling up at the top of its range, and the result is always
+  clamped inside the parameter's limits. Routing is generic: the render thread
+  is handed a destination-to-parameter table and knows nothing about the UI.
+- **Echo** — tempo-synced, with a one-pole in the feedback path so each repeat
+  lands darker, and optional ping-pong. The delay length *glides* to a new
+  value instead of jumping, so changing tempo or division bends the repeats
+  like tape rather than clicking.
+- **Reverb** — Schroeder/Freeverb topology: eight damped combs in parallel into
+  four allpasses in series, right channel offset for a stereo tail, with
+  predelay, size and damping.
 
 No allocation after construction: every buffer is sized for the maximum band
-count up front, because a GC pause on the render thread is a dropout.
+count up front, because a GC pause on the render thread is a dropout. Effect
+settings travel into the delay and reverb through typed arrays rather than as
+arguments — a double passed to a function V8 will not inline gets boxed into a
+HeapNumber, and that boxing was measurably the only garbage this path produced.
 
 ---
 
@@ -108,6 +136,23 @@ count up front, because a GC pause on the render thread is a dropout.
   Bindings persist. The `MIDI` pill lists inputs and the current CC map.
 - **Presets** — eight factory patches; `SAVE` stores your own in `localStorage`.
 - **Esc** — all notes off. So is the `PANIC` button.
+
+### Modulation and space
+
+Everything tempo-based follows one **TEMPO** control: both LFO rates and both
+echo times. Set it once and the whole instrument locks together.
+
+Pick an LFO **TARGET** from the dropdown, then raise **DEPTH** — zero depth
+means the destination is left completely alone. **FORMANT** is the destination
+worth reaching for first; a slow sine over it is where the classic sweeping,
+talking vocoder movement comes from. A square wave on *Vocoder level* at 1/16
+gives you a tempo-locked gate. LFOs can also target the effect mixes, so you
+can swell reverb across a bar.
+
+The two **SPACE** panels are independent: one processes the dry voice, the
+other the vocoded signal. Reverb on the vocoder bus with the voice bus dry is
+the usual starting point — it keeps consonants in front while the synthetic
+part blooms behind them.
 
 ### Getting a good sound
 
@@ -129,27 +174,48 @@ chords underneath a held vowel.
 npm test
 ```
 
-**54 numerical tests** (`test/dsp.test.mjs`) load the worklet in bare Node —
+**101 numerical tests** (`test/dsp.test.mjs`) load the worklet in bare Node —
 it has no imports and touches only `sampleRate`, `AudioWorkletProcessor` and
 `registerProcessor`, so it runs headless. They verify filterbank selectivity
 against band geometry, envelope timing, voicing separation, carrier pitch and
 PolyBLEP alias rejection, limiter ceilings, stereo balance under narrowband
 input, voice allocation, that no parameter combination can produce NaN or
 exceed full scale, that nothing is allocated per block, and that the worst case
-(32 bands, 8 voices × 7 unison) stays a few percent of one core.
+(32 bands, 8 voices × 7 unison, both effect busses wet, both LFOs running)
+stays a few percent of one core. The effects get their own coverage: LFO cycle
+length measured against tempo and division, every waveform's range, modulation
+staying inside its destination's limits and moving symmetrically in ratio on
+logarithmic targets, echo repeats landing on the beat, feedback decaying,
+ping-pong alternating channels, reverb tails decaying and responding to size
+and damping, predelay holding the onset back, and — importantly — that neither
+bus leaks into the other.
 
-**53 end-to-end tests** (`test/browser.test.mjs`) drive real Chrome over the
+**63 end-to-end tests** (`test/browser.test.mjs`) drive real Chrome over the
 DevTools Protocol with a fake capture device, so the whole mic → DSP → output
 path executes. They check the audio graph comes up, signal actually reaches the
 bank, parameter changes land on the render thread, pointer drags and key
 presses do the right thing, sheets and presets work, the buffer can be switched
-without killing audio, nothing overflows its layout, and the console stays
-clean.
+without killing audio, the LFOs actually run and their indicators move, both
+effect busses stay finite and audible, reverb tails outlive the notes, nothing
+overflows or is clipped by its layout, and the console stays clean.
 
 These found real bugs during the build: a limiter that overshot its ceiling by
 2 dB, a stereo scheme that collapsed narrowband content to one side, 489 B/block
-of GC garbage on the audio thread, knobs initialising to `NaN`, and a
-canvas-in-grid feedback loop that grew the layout past the viewport.
+of GC garbage on the audio thread, knobs initialising to `NaN`, a
+canvas-in-grid feedback loop that grew the layout past the viewport, and
+argument boxing in the effect hot path that cost 92 B per block.
+
+A note on measuring allocation: `process.memoryUsage().heapUsed` deltas are a
+coarse instrument at tens of bytes per block, and they disagreed with each
+other until the measurement was isolated from the test harness, which was
+itself allocating two large capture buffers and a fresh argument pair per
+block. Treat the reported figure as an upper bound, not a precise count.
+
+### Layout
+
+The full instrument — 71 controls — fits a 1680×1020 window without scrolling.
+Shorter viewports scroll rather than cram; the panels reflow at 1400 px and
+again at 820 px.
 
 ---
 

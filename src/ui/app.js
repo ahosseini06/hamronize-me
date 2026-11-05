@@ -1,6 +1,7 @@
 import { Engine, LATENCY_MODES } from '../engine/engine.js';
 import { MidiIn } from '../engine/midi.js';
 import { PARAM_BY_ID, PARAMS, format, fromNorm } from '../engine/params.js';
+import * as paramsModule from '../engine/params.js';
 import * as presets from '../engine/presets.js';
 import * as store from './store.js';
 import './knob.js';
@@ -571,7 +572,7 @@ function initContextMenu() {
 /* ─────────────────────────────────────────────── go */
 
 // Handy from the console, and what the browser test harness inspects.
-globalThis.__vox = { engine, midi, store, presets, toast };
+globalThis.__vox = { engine, midi, store, presets, toast, params: paramsModule };
 
 export function boot() {
   initBoot();

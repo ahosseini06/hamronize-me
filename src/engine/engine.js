@@ -10,13 +10,15 @@
 //   - A numeric latencyHint is only a request, so measure and report what we
 //     were actually granted rather than assuming.
 
-import { PARAMS, PARAM_INDEX, PARAM_COUNT, DISCRETE_FLAGS, defaultValues } from './params.js';
+import { PARAMS, PARAM_INDEX, PARAM_COUNT, DISCRETE_FLAGS, defaultValues,
+         modDestIndices, curveTables, DIVISION_BEATS } from './params.js';
 
 const MAX_BANDS = 32;
 const VIS_LEN = 16 + MAX_BANDS * 2;
 const VIS = {
   inLevel: 0, outL: 1, outR: 2, carrier: 3, voicing: 4,
   load: 5, voices: 6, bands: 7, gate: 8, limit: 9, busyUs: 10,
+  lfo1: 11, lfo2: 12,
   env: 16, out: 16 + MAX_BANDS,
 };
 const MIDI_CAP = 256, MIDI_STRIDE = 4, MIDI_BASE = 2;
@@ -80,6 +82,9 @@ export class Engine extends EventTarget {
         paramCount: PARAM_COUNT,
         discrete: DISCRETE_FLAGS,
         initial: this.values,
+        curves: curveTables(),
+        modDest: modDestIndices(),
+        divisions: DIVISION_BEATS,
         paramSAB: this.paramSAB || null,
         midiSAB: this.midiSAB || null,
         visSAB: this.visSAB || null,

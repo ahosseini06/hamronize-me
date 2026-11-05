@@ -13,6 +13,56 @@ const def = (id, label, min, max, value, o = {}) => ({
   ...o,
 });
 
+
+// ---------------------------------------------------------------- tempo tables
+// Rhythmic divisions, measured in quarter-note beats. Shared by the LFO rates
+// and the delay times so everything locks to one TEMPO.
+export const DIVISIONS = [
+  { label: '1/32',  beats: 0.125 },
+  { label: '1/16T', beats: 1 / 6 },
+  { label: '1/16',  beats: 0.25 },
+  { label: '1/16.', beats: 0.375 },
+  { label: '1/8T',  beats: 1 / 3 },
+  { label: '1/8',   beats: 0.5 },
+  { label: '1/8.',  beats: 0.75 },
+  { label: '1/4T',  beats: 2 / 3 },
+  { label: '1/4',   beats: 1 },
+  { label: '1/4.',  beats: 1.5 },
+  { label: '1/2T',  beats: 4 / 3 },
+  { label: '1/2',   beats: 2 },
+  { label: '1/2.',  beats: 3 },
+  { label: '1/1',   beats: 4 },
+  { label: '2/1',   beats: 8 },
+  { label: '4/1',   beats: 16 },
+];
+const clampIdx = v => Math.min(DIVISIONS.length - 1, Math.max(0, Math.round(v)));
+
+export const LFO_WAVES = ['SINE', 'TRI', 'SAW', 'RAMP', 'SQR', 'S&H'];
+
+// LFO destinations. Each routes to a real parameter and is modulated in that
+// parameter's own curve space, so sweeping a frequency sounds musical rather
+// than lopsided towards the top of its range.
+export const MOD_DESTS = [
+  { label: '— off —',      param: null },
+  { label: 'Formant',      param: 'formant' },
+  { label: 'Sibilance frq',param: 'sibHz' },
+  { label: 'Band low',     param: 'fLow' },
+  { label: 'Band high',    param: 'fHigh' },
+  { label: 'Resonance Q',  param: 'qMul' },
+  { label: 'Tilt',         param: 'tilt' },
+  { label: 'Osc shape',    param: 'shape' },
+  { label: 'Pulse width',  param: 'pw' },
+  { label: 'Detune',       param: 'detune' },
+  { label: 'Pitch',        param: 'fine' },
+  { label: 'Vocoder level',param: 'vocLevel' },
+  { label: 'Dry voice',    param: 'dry' },
+  { label: 'Brightness',   param: 'bright' },
+  { label: 'Echo · voice', param: 'vaDlyMix' },
+  { label: 'Verb · voice', param: 'vaRevMix' },
+  { label: 'Echo · vocoder', param: 'vbDlyMix' },
+  { label: 'Verb · vocoder', param: 'vbRevMix' },
+];
+
 export const PARAMS = [
   // ---------------------------------------------------------------- VOICE (modulator)
   def('inGain',   'INPUT',   -24, 24,   0,   { unit: 'dB', group: 'voice', bipolar: true }),
@@ -85,6 +135,56 @@ export const PARAMS = [
   def('master',   'MASTER',  -40, 12,  -3,    { group: 'mix', unit: 'dB', bipolar: true }),
   def('limiter',  'LIMITER',   0, 1,    1,    { group: 'mix', discrete: true, toggle: true }),
   def('limThresh','CEILING', -12, 0,   -1,    { group: 'mix', unit: 'dB' }),  // never positive
+
+  // ---------------------------------------------------------------- TEMPO + MODULATION
+  def('bpm',      'TEMPO',    60, 220, 120,  { group: 'mod', discrete: true, step: 1,
+                                               fmt: v => v.toFixed(0) + ' bpm' }),
+
+  def('lfo1Rate', 'RATE',      0, 15,  13,   { group: 'mod', discrete: true, step: 1,
+                                               fmt: v => DIVISIONS[clampIdx(v)].label,
+                                               hint: 'synced to TEMPO' }),
+  def('lfo1Wave', 'WAVE',      0, 5,   0,    { group: 'mod', discrete: true, step: 1,
+                                               fmt: v => LFO_WAVES[Math.round(v)] || '?' }),
+  def('lfo1Depth','DEPTH',     0, 1,   0,    { group: 'mod', unit: '%' }),
+  def('lfo1Phase','PHASE',     0, 360, 0,    { group: 'mod', fmt: v => v.toFixed(0) + '\u00b0' }),
+  def('lfo1Dest', 'TARGET',    0, 17,  0,    { group: 'mod', discrete: true, select: true,
+                                               options: () => MOD_DESTS.map((d, i) => ({ label: d.label, value: i })) }),
+
+  def('lfo2Rate', 'RATE',      0, 15,  11,   { group: 'mod', discrete: true, step: 1,
+                                               fmt: v => DIVISIONS[clampIdx(v)].label,
+                                               hint: 'synced to TEMPO' }),
+  def('lfo2Wave', 'WAVE',      0, 5,   1,    { group: 'mod', discrete: true, step: 1,
+                                               fmt: v => LFO_WAVES[Math.round(v)] || '?' }),
+  def('lfo2Depth','DEPTH',     0, 1,   0,    { group: 'mod', unit: '%' }),
+  def('lfo2Phase','PHASE',     0, 360, 90,   { group: 'mod', fmt: v => v.toFixed(0) + '\u00b0' }),
+  def('lfo2Dest', 'TARGET',    0, 17,  0,    { group: 'mod', discrete: true, select: true,
+                                               options: () => MOD_DESTS.map((d, i) => ({ label: d.label, value: i })) }),
+
+  // ---------------------------------------------------------------- FX: VOICE bus
+  def('vaDlyDiv', 'TIME',      0, 15,  6,    { group: 'fxa', discrete: true, step: 1,
+                                               fmt: v => DIVISIONS[clampIdx(v)].label }),
+  def('vaDlyFb',  'FEEDBACK',  0, 0.95, 0.35,{ group: 'fxa', unit: '%' }),
+  def('vaDlyTone','TONE',      500, 16000, 5000, { group: 'fxa', unit: 'Hz', curve: 'exp',
+                                               hint: 'darkens each repeat' }),
+  def('vaDlyMix', 'ECHO',      0, 1,   0,    { group: 'fxa', unit: '%' }),
+  def('vaDlyPing','PING-PONG', 0, 1,   1,    { group: 'fxa', discrete: true, toggle: true }),
+  def('vaRevSize','SIZE',      0, 1,   0.62, { group: 'fxa', unit: '%' }),
+  def('vaRevDamp','DAMP',      0, 1,   0.45, { group: 'fxa', unit: '%' }),
+  def('vaRevPre', 'PREDELAY',  0, 200, 20,   { group: 'fxa', unit: 'ms' }),
+  def('vaRevMix', 'REVERB',    0, 1,   0,    { group: 'fxa', unit: '%' }),
+
+  // ---------------------------------------------------------------- FX: VOCODER bus
+  def('vbDlyDiv', 'TIME',      0, 15,  6,    { group: 'fxb', discrete: true, step: 1,
+                                               fmt: v => DIVISIONS[clampIdx(v)].label }),
+  def('vbDlyFb',  'FEEDBACK',  0, 0.95, 0.35,{ group: 'fxb', unit: '%' }),
+  def('vbDlyTone','TONE',      500, 16000, 5000, { group: 'fxb', unit: 'Hz', curve: 'exp',
+                                               hint: 'darkens each repeat' }),
+  def('vbDlyMix', 'ECHO',      0, 1,   0,    { group: 'fxb', unit: '%' }),
+  def('vbDlyPing','PING-PONG', 0, 1,   1,    { group: 'fxb', discrete: true, toggle: true }),
+  def('vbRevSize','SIZE',      0, 1,   0.62, { group: 'fxb', unit: '%' }),
+  def('vbRevDamp','DAMP',      0, 1,   0.45, { group: 'fxb', unit: '%' }),
+  def('vbRevPre', 'PREDELAY',  0, 200, 20,   { group: 'fxb', unit: 'ms' }),
+  def('vbRevMix', 'REVERB',    0, 1,   0,    { group: 'fxb', unit: '%' }),
 ];
 
 export const PARAM_INDEX = Object.freeze(
@@ -101,7 +201,30 @@ export const GROUPS = {
   carrier: { title: 'CARRIER', accent: 'cool' },
   vocoder: { title: 'VOCODER', accent: 'warm' },
   mix:     { title: 'OUTPUT',  accent: 'neutral' },
+  mod:     { title: 'MODULATION', accent: 'cool' },
+  fxa:     { title: 'SPACE \u00b7 VOICE', accent: 'warm' },
+  fxb:     { title: 'SPACE \u00b7 VOCODER', accent: 'neutral' },
 };
+
+// Destination index -> parameter index, handed to the render thread so it can
+// route modulation without knowing anything about the UI.
+export function modDestIndices() {
+  return MOD_DESTS.map(d => (d.param != null && d.param in PARAM_INDEX ? PARAM_INDEX[d.param] : -1));
+}
+
+// Curve descriptors, so the worklet can modulate in normalised space.
+export function curveTables() {
+  const n = PARAMS.length;
+  const min = new Float32Array(n), max = new Float32Array(n);
+  const curve = new Int32Array(n), pow = new Float32Array(n);
+  PARAMS.forEach((p, i) => {
+    min[i] = p.min; max[i] = p.max; pow[i] = p.pow || 2;
+    curve[i] = p.curve === 'exp' ? 1 : p.curve === 'pow' ? 2 : 0;
+  });
+  return { min, max, curve, pow };
+}
+
+export const DIVISION_BEATS = Float64Array.from(DIVISIONS.map(d => d.beats));
 
 export function defaultValues() {
   const a = new Float32Array(PARAM_COUNT);
@@ -132,12 +255,18 @@ export function fromNorm(p, n) {
   return quantise(p, v);
 }
 
+export function optionsOf(p) {
+  if (!p.options) return null;
+  return typeof p.options === 'function' ? p.options() : p.options;
+}
+
 export function quantise(p, v) {
   let x = Math.min(p.max, Math.max(p.min, v));
-  if (p.options) {
+  const opts = optionsOf(p);
+  if (opts) {
     // Snap to the nearest declared option.
-    let best = p.options[0].value, bd = Infinity;
-    for (const o of p.options) {
+    let best = opts[0].value, bd = Infinity;
+    for (const o of opts) {
       const d = Math.abs(o.value - x);
       if (d < bd) { bd = d; best = o.value; }
     }
@@ -151,8 +280,9 @@ export function quantise(p, v) {
 export function format(p, v) {
   if (p.fmt) return p.fmt(v);
   if (p.toggle) return v >= 0.5 ? 'ON' : 'OFF';
-  if (p.options) {
-    const o = p.options.find(o => o.value === quantise(p, v));
+  const opts = optionsOf(p);
+  if (opts) {
+    const o = opts.find(o => o.value === quantise(p, v));
     return o ? o.label : String(v);
   }
   const sign = v > 0 && p.bipolar ? '+' : '';
