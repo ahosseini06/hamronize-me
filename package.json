@@ -1,0 +1,14 @@
+{
+  "name": "vox-machina",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Live performance channel vocoder for Chrome. Mic in, MIDI in, all DSP on the audio render thread.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --expose-gc test/dsp.test.mjs && node test/browser.test.mjs",
+    "test:dsp": "node --expose-gc test/dsp.test.mjs",
+    "test:browser": "node test/browser.test.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
