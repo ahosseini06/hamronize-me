@@ -1,0 +1,141 @@
+// Segmented selector and on/off toggle, sharing the knob's store plumbing.
+
+import { PARAM_BY_ID, format, optionsOf, quantise } from '../engine/params.js';
+import * as store from './store.js';
+
+export class Seg extends HTMLElement {
+  connectedCallback() {
+    if (this._built) return;
+    this._built = true;
+    this.id_ = this.getAttribute('param');
+    this.def = PARAM_BY_ID[this.id_];
+    if (!this.def) return;
+    this.classList.add('seg');
+
+    const label = document.createElement('div');
+    label.className = 'seg-label';
+    label.textContent = this.def.label;
+
+    this.row = document.createElement('div');
+    this.row.className = 'seg-row';
+
+    const options = optionsOf(this.def)
+      || Array.from({ length: this.def.max - this.def.min + 1 },
+                    (_, i) => ({ label: String(this.def.min + i), value: this.def.min + i }));
+
+    this.buttons = options.map(o => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'seg-btn';
+      b.textContent = o.label;
+      b.addEventListener('click', () => { store.set(this.id_, o.value); store.touch(this.id_); });
+      this.row.append(b);
+      return { b, value: o.value };
+    });
+
+    this.append(label, this.row);
+    if (this.def.hint) this.title = `${this.def.label} - ${this.def.hint}`;
+    this.addEventListener('pointerenter', () => store.touch(this.id_));
+    store.register(this.id_, this);
+  }
+  disconnectedCallback() { store.unregister(this.id_, this); }
+  update(v) {
+    this.value = v;
+    for (const { b, value } of this.buttons) {
+      b.classList.toggle('on', Math.abs(value - v) < 1e-6);
+    }
+  }
+  showCc(cc) { this.classList.toggle('has-cc', cc != null); }
+  setLearning(on) { this.classList.toggle('learning', on); }
+}
+
+export class Toggle extends HTMLElement {
+  connectedCallback() {
+    if (this._built) return;
+    this._built = true;
+    this.id_ = this.getAttribute('param');
+    this.def = PARAM_BY_ID[this.id_];
+    if (!this.def) return;
+    this.classList.add('toggle');
+
+    this.btn = document.createElement('button');
+    this.btn.type = 'button';
+    this.btn.className = 'toggle-btn';
+    this.btn.innerHTML = `<span class="toggle-led"></span><span>${this.def.label}</span>`;
+    this.btn.addEventListener('click', () => {
+      store.set(this.id_, this.value >= 0.5 ? 0 : 1);
+      store.touch(this.id_);
+    });
+    this.btn.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      this.dispatchEvent(new CustomEvent('knob-menu', {
+        bubbles: true, detail: { param: this.id_, x: e.clientX, y: e.clientY },
+      }));
+    });
+    this.append(this.btn);
+    if (this.def.hint) this.title = `${this.def.label} - ${this.def.hint}`;
+    store.register(this.id_, this);
+  }
+  disconnectedCallback() { store.unregister(this.id_, this); }
+  update(v) {
+    this.value = v;
+    this.btn.classList.toggle('on', v >= 0.5);
+    this.btn.setAttribute('aria-pressed', v >= 0.5 ? 'true' : 'false');
+  }
+  showCc(cc) { this.classList.toggle('has-cc', cc != null); }
+  setLearning(on) { this.classList.toggle('learning', on); }
+}
+
+customElements.define('vk-seg', Seg);
+customElements.define('vk-toggle', Toggle);
+
+// Dropdown for enum parameters with more options than a segmented row can hold
+// (the LFO destination list, for instance).
+export class Sel extends HTMLElement {
+  connectedCallback() {
+    if (this._built) return;
+    this._built = true;
+    this.id_ = this.getAttribute('param');
+    this.def = PARAM_BY_ID[this.id_];
+    if (!this.def) return;
+    this.classList.add('selw');
+
+    const label = document.createElement('div');
+    label.className = 'seg-label';
+    label.textContent = this.def.label;
+
+    this.sel = document.createElement('select');
+    this.sel.className = 'select wide';
+    for (const o of (optionsOf(this.def) || [])) {
+      const el = document.createElement('option');
+      el.value = String(o.value);
+      el.textContent = o.label;
+      this.sel.append(el);
+    }
+    this.sel.addEventListener('change', () => {
+      store.set(this.id_, Number(this.sel.value));
+      store.touch(this.id_);
+    });
+    this.sel.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      this.dispatchEvent(new CustomEvent('knob-menu', {
+        bubbles: true, detail: { param: this.id_, x: e.clientX, y: e.clientY },
+      }));
+    });
+
+    this.append(label, this.sel);
+    this.addEventListener('pointerenter', () => store.touch(this.id_));
+    store.register(this.id_, this);
+  }
+  disconnectedCallback() { store.unregister(this.id_, this); }
+  update(v) {
+    this.value = v;
+    const q = quantise(this.def, v);
+    if (this.sel.value !== String(q)) this.sel.value = String(q);
+    this.classList.toggle('routed', q > 0);
+  }
+  showCc(cc) { this.classList.toggle('has-cc', cc != null); }
+  setLearning(on) { this.classList.toggle('learning', on); }
+}
+
+customElements.define('vk-select', Sel);

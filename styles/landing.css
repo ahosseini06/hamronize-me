@@ -1,0 +1,142 @@
+/* VOX MACHINA — landing page. Shares the instrument's palette, nothing more. */
+
+:root {
+  --bg:        #060709;
+  --panel:     #0f1116;
+  --line:      #1f242d;
+  --line-soft: #171b22;
+  --txt:       #e7ebf1;
+  --txt-dim:   #99a3b1;
+  --txt-faint: #5c6673;
+  --warm:      #ff9d3d;
+  --cool:      #3ddbff;
+  --good:      #4ade80;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.68;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: "";
+  position: fixed; inset: 0; z-index: 0;
+  background:
+    radial-gradient(900px 520px at 50% -10%, rgba(61,219,255,.07), transparent 70%),
+    radial-gradient(800px 460px at 85% 105%, rgba(255,157,61,.05), transparent 70%);
+  pointer-events: none;
+}
+
+main, .bar, footer { position: relative; z-index: 1; }
+a { color: var(--cool); }
+
+/* ── bar */
+.bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  max-width: 1000px; margin: 0 auto;
+  padding: 18px 28px;
+}
+.brand {
+  display: inline-flex; align-items: center; gap: 10px;
+  font-size: 13px; letter-spacing: .16em; color: var(--txt-dim);
+}
+.brand b { color: var(--txt); font-weight: 700; }
+.bars { display: flex; align-items: flex-end; gap: 2.5px; height: 17px; }
+.bars i {
+  width: 2.5px; border-radius: 1px;
+  background: linear-gradient(to top, var(--warm), #ffd9a3);
+}
+.bars i:nth-child(1) { height: 45% }
+.bars i:nth-child(2) { height: 85% }
+.bars i:nth-child(3) { height: 60% }
+.bars i:nth-child(4) { height: 100% }
+.bars i:nth-child(5) { height: 52% }
+
+.bar-link {
+  font-size: 12.5px; letter-spacing: .06em; color: var(--txt-dim);
+  text-decoration: none; white-space: nowrap;
+}
+.bar-link:hover { color: var(--cool); }
+
+/* ── layout */
+main { max-width: 760px; margin: 0 auto; padding: 56px 28px 40px; }
+
+h1 {
+  margin: 0 0 22px;
+  font-size: clamp(34px, 6vw, 52px);
+  line-height: 1.08;
+  letter-spacing: -.02em;
+  font-weight: 700;
+}
+p { margin: 0 0 18px; color: var(--txt-dim); }
+p:last-child { margin-bottom: 0; }
+strong, b { color: var(--txt); font-weight: 600; }
+
+
+code {
+  font-family: var(--mono); font-size: .86em;
+  padding: 1px 5px; border-radius: 4px;
+  background: #11141a; border: 1px solid var(--line-soft); color: var(--txt);
+}
+kbd {
+  font-family: var(--mono); font-size: .8em;
+  padding: 1px 5px; border-radius: 4px;
+  background: #11141a; border: 1px solid #2a313b;
+  border-bottom-width: 2px; color: var(--txt);
+}
+
+/* ── cta */
+.cta-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 16px;
+  margin-top: 40px;
+}
+.cta {
+  display: inline-block;
+  padding: 14px 32px;
+  font-size: 13px; font-weight: 600; letter-spacing: .18em;
+  color: #060709; text-decoration: none;
+  background: linear-gradient(180deg, #ffd9a3, var(--warm));
+  border-radius: 8px;
+  box-shadow: 0 10px 30px -10px rgba(255,157,61,.55);
+  transition: transform .12s ease, box-shadow .2s ease;
+}
+.cta:hover { transform: translateY(-1px); box-shadow: 0 14px 36px -10px rgba(255,157,61,.7); }
+.cta:active { transform: translateY(1px); }
+
+/* ── screenshot */
+.shot { margin: 56px 0 0; }
+.shot img {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 30px 70px -30px rgba(0,0,0,.95);
+  background: #07080a;
+}
+
+/* ── footer */
+footer {
+  max-width: 760px; margin: 0 auto;
+  padding: 26px 28px 40px;
+  border-top: 1px solid var(--line-soft);
+  display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px;
+  font-size: 12px; letter-spacing: .06em; color: var(--txt-faint);
+}
+
+@media (max-width: 620px) {
+  main, footer, .bar { padding-left: 20px; padding-right: 20px; }
+  .bar-link { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cta { transition: none; }
+}
