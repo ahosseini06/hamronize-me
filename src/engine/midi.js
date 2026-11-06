@@ -10,6 +10,7 @@ export class MidiIn extends EventTarget {
     this.inputs = [];
     this.enabled = new Set();      // input ids we are listening to
     this.seen = new Set();         // ids we have already decided about
+    this.only = 'all';             // 'all' | 'none' | a specific input id
     this.learnTarget = null;       // param id awaiting a CC binding
     this.bindings = new Map();     // cc -> param id
     this.state = 'idle';           // idle | granted | denied | unsupported
@@ -20,6 +21,8 @@ export class MidiIn extends EventTarget {
 
   async connect() {
     if (!this.supported) { this.state = 'unsupported'; return false; }
+    // Access may already have been granted from the start screen.
+    if (this.access) { this._refresh(); return true; }
     try {
       // No sysex: it widens the permission for no benefit here.
       this.access = await navigator.requestMIDIAccess({ sysex: false });
@@ -44,9 +47,22 @@ export class MidiIn extends EventTarget {
       // device in would switch them all back on.
       if (!this.seen.has(input.id)) {
         this.seen.add(input.id);
-        this.enabled.add(input.id);
+        if (this.only === 'all' || this.only === input.id) this.enabled.add(input.id);
       }
       input.onmidimessage = this.enabled.has(input.id) ? (e => this._onMessage(e)) : null;
+    }
+    this.dispatchEvent(new Event('change'));
+  }
+
+  // Listen to exactly one input, every input, or none.
+  selectOnly(which) {
+    this.only = which || 'all';
+    this.enabled.clear();
+    for (const i of this.inputs) {
+      if (this.only === 'all' || this.only === i.id) this.enabled.add(i.id);
+    }
+    for (const i of this.inputs) {
+      i.onmidimessage = this.enabled.has(i.id) ? (e => this._onMessage(e)) : null;
     }
     this.dispatchEvent(new Event('change'));
   }

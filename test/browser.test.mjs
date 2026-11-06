@@ -174,6 +174,55 @@ try {
      await cdp.eval('document.querySelectorAll("vk-knob,vk-seg,vk-toggle,vk-select").length') === 71);
   ok('no boot error shown', await cdp.eval('document.querySelector("#bootError").hidden') === true);
 
+  // ---- start screen: device pickers and buffer selector
+  const boot = await cdp.eval(`(() => {
+    const kind = id => { const el = document.querySelector(id); return el ? el.tagName : null; };
+    return {
+      gone: !document.querySelector('.boot h1') && !document.querySelector('.boot-sub') &&
+            !document.querySelector('.boot-note'),
+      input: kind('#bootInput'), midi: kind('#bootMidi'), output: kind('#bootOutput'),
+      inputOpts: document.querySelector('#bootInput')?.options?.length || 0,
+      clipped: [...document.querySelectorAll('#bootLatency .seg-btn')]
+        .filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent),
+      widths: [...document.querySelectorAll('#bootLatency .seg-btn')]
+        .map(b => Math.round(b.getBoundingClientRect().width)),
+    };
+  })()`);
+  ok('start screen drops the title, subtitle and permission note', boot.gone);
+  ok('input, MIDI and output pickers are present',
+     !!boot.input && !!boot.midi && !!boot.output, JSON.stringify(boot));
+  ok('input picker lists the capture devices', boot.input === 'SELECT' && boot.inputOpts >= 1,
+     `${boot.input} with ${boot.inputOpts} options`);
+  ok('buffer buttons are not clipped', boot.clipped.length === 0, JSON.stringify(boot.clipped));
+  ok('buffer buttons share the row evenly',
+     boot.widths.length === 3 && Math.max(...boot.widths) - Math.min(...boot.widths) <= 1 &&
+     Math.min(...boot.widths) >= 90, JSON.stringify(boot.widths));
+  const bufDesc = await cdp.eval(`(() => {
+    const b = [...document.querySelectorAll('#bootLatency .seg-btn')].find(x => x.textContent === 'BALANCED');
+    b.click();
+    const d = document.querySelector('#bootLatencyDesc').textContent;
+    [...document.querySelectorAll('#bootLatency .seg-btn')].find(x => x.textContent === 'INTERACTIVE').click();
+    return d;
+  })()`);
+  ok('choosing a buffer updates its description', /loaded machine/.test(bufDesc), bufDesc);
+
+  // A chosen input should be the one the engine opens.
+  const picked = await cdp.eval(`(() => {
+    const s = document.querySelector('#bootInput');
+    const last = s.options[s.options.length - 1];
+    s.value = last.value; s.dispatchEvent(new Event('change'));
+    return { id: last.value, label: last.textContent };
+  })()`);
+  // Same for the output: pick a specific device rather than the default.
+  const pickedOut = await cdp.eval(`(() => {
+    const s = document.querySelector('#bootOutput');
+    if (!s || s.tagName !== 'SELECT' || s.disabled) return null;
+    const o = [...s.options].find(x => x.value);
+    if (!o) return null;
+    s.value = o.value; s.dispatchEvent(new Event('change'));
+    return o.value;
+  })()`);
+
   // ---- engage
   await cdp.eval('document.querySelector("#engage").click()');
   await sleep(3000);
@@ -197,6 +246,16 @@ try {
   ok('engine running', state.running === true);
   ok('audio context is running', state.ctxState === 'running', state.ctxState);
   ok('app revealed, boot dismissed', state.appVisible && state.bootGone);
+  const opened = await cdp.eval('__vox.engine.inputLabel');
+  ok('engine opened the input chosen on the start screen', opened === picked.label,
+     `wanted "${picked.label}", opened "${opened}"`);
+  if (pickedOut) {
+    const sink = await cdp.eval('(s => typeof s === "string" ? s : "")(__vox.engine.ctx.sinkId)');
+    ok('audio is routed to the output chosen on the start screen', sink === pickedOut,
+       `wanted ${pickedOut.slice(0, 12)}…, got ${sink.slice(0, 12)}…`);
+  } else {
+    console.log('  note  no selectable output device in this browser; routing not checked');
+  }
   ok('SharedArrayBuffer transport active', state.shared === true,
      `transport=${state.transport}`);
   ok('context clock advancing', state.currentTime > 0, `t=${state.currentTime}`);

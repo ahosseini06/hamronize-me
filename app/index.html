@@ -20,25 +20,25 @@
   <div class="boot-card">
     <div class="boot-mark">
       <span class="boot-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
-      <h1>VOX&nbsp;MACHINA</h1>
     </div>
-    <p class="boot-sub">Live channel vocoder · microphone &times; MIDI synth · all DSP off the main thread</p>
 
     <div class="boot-warn">
       <b>Use headphones.</b> Open speakers will feed the vocoder back into itself.
     </div>
 
-    <div class="boot-field">
-      <label>Buffer</label>
+    <div class="boot-form">
+      <span class="boot-label">Input</span>
+      <div class="boot-slot" id="bootInputSlot"></div>
+      <span class="boot-label">MIDI</span>
+      <div class="boot-slot" id="bootMidiSlot"></div>
+      <span class="boot-label">Output</span>
+      <div class="boot-slot" id="bootOutputSlot"></div>
+      <span class="boot-label">Buffer</span>
       <div class="seg-row" id="bootLatency"></div>
-      <small id="bootLatencyDesc"></small>
+      <small class="boot-hint" id="bootLatencyDesc"></small>
     </div>
 
     <button id="engage" class="engage">ENGAGE</button>
-    <p class="boot-note">
-      Chrome will ask for the microphone, then for MIDI. Both are needed for the
-      full instrument — you can play the on-screen keyboard without MIDI.
-    </p>
     <div id="bootError" class="boot-error" hidden></div>
   </div>
 </div>

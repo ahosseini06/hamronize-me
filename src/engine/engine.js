@@ -29,6 +29,11 @@ export const LATENCY_MODES = [
   { id: 'balanced',    label: 'BALANCED',    hint: 'balanced',    desc: 'safer on a loaded machine' },
 ];
 
+// AudioContext output routing (sinkId) shipped in Chrome 110.
+export const SUPPORTS_OUTPUT_SELECTION =
+  typeof AudioContext !== 'undefined' &&
+  typeof AudioContext.prototype.setSinkId === 'function';
+
 export class Engine extends EventTarget {
   constructor() {
     super();
@@ -43,6 +48,7 @@ export class Engine extends EventTarget {
     this.visLayout = VIS;
     this.latencyMode = 'interactive';
     this.deviceId = null;
+    this.sinkId = '';           // '' = system default output
     this.devices = [];
     this.inputLatency = 0;
     this._pendingParams = false;
@@ -56,14 +62,27 @@ export class Engine extends EventTarget {
 
   // ------------------------------------------------------------------ start
 
-  async start({ latencyMode = 'interactive', deviceId = null } = {}) {
+  async start({ latencyMode = 'interactive', deviceId = null, sinkId = '' } = {}) {
     if (this.running) return;
     this.latencyMode = latencyMode;
     this.deviceId = deviceId;
 
     const mode = LATENCY_MODES.find(m => m.id === latencyMode) || LATENCY_MODES[1];
     // No sampleRate here on purpose: let the context adopt the hardware rate.
-    this.ctx = new AudioContext({ latencyHint: mode.hint });
+    const opts = { latencyHint: mode.hint };
+    if (sinkId && SUPPORTS_OUTPUT_SELECTION) opts.sinkId = sinkId;
+    try {
+      this.ctx = new AudioContext(opts);
+      this.sinkId = opts.sinkId || '';
+    } catch (err) {
+      // A remembered output that has since been unplugged: fall back to the
+      // system default rather than refusing to start.
+      if (!opts.sinkId) throw err;
+      delete opts.sinkId;
+      this.ctx = new AudioContext(opts);
+      this.sinkId = '';
+      this.dispatchEvent(new CustomEvent('outputfallback'));
+    }
     if (this.ctx.state === 'suspended') await this.ctx.resume();
 
     // Relative to this module, not to the document, so moving the page (or
@@ -206,7 +225,7 @@ export class Engine extends EventTarget {
     const values = Float32Array.from(this.values);
     await this.stop();
     this.values = values;
-    await this.start({ latencyMode: mode, deviceId: this.deviceId });
+    await this.start({ latencyMode: mode, deviceId: this.deviceId, sinkId: this.sinkId });
   }
 
   async stop() {

@@ -1,4 +1,4 @@
-import { Engine, LATENCY_MODES } from '../engine/engine.js';
+import { Engine, LATENCY_MODES, SUPPORTS_OUTPUT_SELECTION } from '../engine/engine.js';
 import { MidiIn } from '../engine/midi.js';
 import { PARAM_BY_ID, PARAMS, format, fromNorm } from '../engine/params.js';
 import * as paramsModule from '../engine/params.js';
@@ -19,7 +19,7 @@ store.attachEngine(engine);
 
 let display, meters, keyboard;
 let userPresets = presets.loadUser();
-let prefs = { latencyMode: 'interactive', deviceId: null };
+let prefs = { latencyMode: 'interactive', deviceId: null, sinkId: '', midiInput: 'all' };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem(PREF) || '{}')); } catch {}
 const savePrefs = () => { try { localStorage.setItem(PREF, JSON.stringify(prefs)); } catch {} };
 
@@ -76,7 +76,196 @@ window.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); 
 
 /* ─────────────────────────────────────────────── boot */
 
+/* ─────────────────────────────────────────────── boot: device pickers */
+
+// What the start screen will hand to engine.start(). Seeded from saved prefs,
+// then corrected against whatever devices are actually present.
+const choice = { input: null, output: '', midi: 'all' };
+const audioDevices = { inputs: [], outputs: [], labelled: false };
+
+async function scanAudioDevices() {
+  try {
+    const all = await navigator.mediaDevices.enumerateDevices();
+    audioDevices.inputs = all.filter(d => d.kind === 'audioinput');
+    audioDevices.outputs = all.filter(d => d.kind === 'audiooutput');
+    // Chrome withholds device names until the page has microphone permission.
+    audioDevices.labelled = all.some(d => d.kind === 'audioinput' && d.label);
+  } catch {
+    audioDevices.inputs = []; audioDevices.outputs = []; audioDevices.labelled = false;
+  }
+}
+
+async function unlockAudioDevices() {
+  const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+  s.getTracks().forEach(t => t.stop());
+  await scanAudioDevices();
+}
+
+function bootSelect(id, options, value, onChange, disabled = false) {
+  const sel = document.createElement('select');
+  sel.id = id;
+  sel.className = 'select';
+  for (const o of options) {
+    const el = document.createElement('option');
+    el.value = o.value;
+    el.textContent = o.label;
+    sel.append(el);
+  }
+  sel.value = value;
+  sel.disabled = disabled;
+  if (onChange) sel.addEventListener('change', () => onChange(sel.value));
+  return sel;
+}
+
+function bootPick(id, text, action) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.id = id;
+  b.className = 'boot-pick';
+  b.textContent = text;
+  b.addEventListener('click', async () => {
+    b.disabled = true;
+    try { await action(); } finally { b.disabled = false; }
+  });
+  return b;
+}
+
+const pickFrom = (options, wanted, fallback) =>
+  options.some(o => o.value === wanted) ? wanted : fallback;
+
+async function unlockAndRepaint() {
+  try {
+    await unlockAudioDevices();
+  } catch (e) {
+    showBootError(explainStartError(e));
+  }
+  paintInputPicker();
+  paintOutputPicker();
+}
+
+function paintInputPicker() {
+  const slot = $('#bootInputSlot');
+  slot.innerHTML = '';
+  if (!audioDevices.labelled) {
+    slot.append(bootPick('bootInput', 'Choose microphone…', unlockAndRepaint));
+    return;
+  }
+  const opts = audioDevices.inputs.map(d => ({ value: d.deviceId, label: d.label || 'Microphone' }));
+  if (!opts.length) {
+    slot.append(bootSelect('bootInput', [{ value: '', label: 'No microphone found' }], '', null, true));
+    choice.input = null;
+    return;
+  }
+  choice.input = pickFrom(opts, prefs.deviceId, opts[0].value);
+  slot.append(bootSelect('bootInput', opts, choice.input, v => {
+    choice.input = v; prefs.deviceId = v; savePrefs();
+  }));
+}
+
+function paintOutputPicker() {
+  const slot = $('#bootOutputSlot');
+  slot.innerHTML = '';
+  const systemDefault = [{ value: '', label: 'System default' }];
+  if (!SUPPORTS_OUTPUT_SELECTION) {
+    slot.append(bootSelect('bootOutput', systemDefault, '', null, true));
+    choice.output = '';
+    return;
+  }
+  if (!audioDevices.labelled) {
+    slot.append(bootPick('bootOutput', 'Choose output…', unlockAndRepaint));
+    return;
+  }
+  // Chrome's 'default' entry and '' both mean the system default output.
+  const opts = audioDevices.outputs.map(d => ({
+    value: d.deviceId === 'default' ? '' : d.deviceId,
+    label: d.label || 'Output',
+  }));
+  if (!opts.length) {
+    slot.append(bootSelect('bootOutput', systemDefault, '', null, true));
+    choice.output = '';
+    return;
+  }
+  if (!opts.some(o => o.value === '')) opts.unshift(systemDefault[0]);
+  choice.output = pickFrom(opts, prefs.sinkId, '');
+  slot.append(bootSelect('bootOutput', opts, choice.output, v => {
+    choice.output = v; prefs.sinkId = v; savePrefs();
+  }));
+}
+
+function paintMidiPicker() {
+  const slot = $('#bootMidiSlot');
+  if (!slot || $('#boot').hidden) return;
+  slot.innerHTML = '';
+  if (!midi.supported) {
+    slot.append(bootSelect('bootMidi', [{ value: '', label: 'Not available in this browser' }], '', null, true));
+    return;
+  }
+  if (midi.state === 'granted') {
+    const opts = midi.inputs.length
+      ? [{ value: 'all', label: 'All MIDI inputs' },
+         ...midi.inputs.map(i => ({ value: i.id, label: i.name || 'MIDI input' }))]
+      : [{ value: 'all', label: 'No MIDI devices — plug one in' }];
+    opts.push({ value: 'none', label: 'None' });
+    choice.midi = pickFrom(opts, prefs.midiInput, 'all');
+    if (midi.only !== choice.midi) midi.selectOnly(choice.midi);
+    slot.append(bootSelect('bootMidi', opts, choice.midi, v => {
+      choice.midi = v; prefs.midiInput = v; savePrefs();
+      midi.selectOnly(v);
+    }));
+    return;
+  }
+  if (midi.state === 'denied') {
+    slot.append(bootSelect('bootMidi', [{ value: '', label: 'MIDI permission denied' }], '', null, true));
+    return;
+  }
+  if (midi.state === 'error') {
+    slot.append(bootSelect('bootMidi', [{ value: '', label: 'MIDI unavailable' }], '', null, true));
+    return;
+  }
+  slot.append(bootPick('bootMidi', 'Enable MIDI…', async () => {
+    await midi.connect();
+    paintMidiPicker();
+  }));
+}
+
+function showBootError(html) {
+  const err = $('#bootError');
+  err.hidden = false;
+  err.innerHTML = html;
+}
+
+async function initDevicePickers() {
+  choice.input = prefs.deviceId;
+  choice.output = prefs.sinkId || '';
+  choice.midi = prefs.midiInput || 'all';
+  midi.load();
+  midi.only = choice.midi;
+
+  await scanAudioDevices();
+  paintInputPicker();
+  paintOutputPicker();
+
+  // Only list MIDI devices up front if access was already granted; otherwise
+  // wait for a click rather than throwing a permission prompt on page load.
+  let midiGranted = false;
+  try {
+    const st = await navigator.permissions.query({ name: 'midi' });
+    midiGranted = st.state === 'granted';
+  } catch {}
+  if (midiGranted) await midi.connect();
+  paintMidiPicker();
+
+  midi.addEventListener('change', paintMidiPicker);
+  navigator.mediaDevices.addEventListener?.('devicechange', async () => {
+    if ($('#boot').hidden) return;
+    await scanAudioDevices();
+    paintInputPicker();
+    paintOutputPicker();
+  });
+}
+
 function initBoot() {
+  initDevicePickers();
   const row = $('#bootLatency');
   const desc = $('#bootLatencyDesc');
   const paint = () => {
@@ -106,7 +295,11 @@ async function engage() {
   err.hidden = true;
 
   try {
-    await engine.start({ latencyMode: prefs.latencyMode, deviceId: prefs.deviceId });
+    await engine.start({
+      latencyMode: prefs.latencyMode,
+      deviceId: choice.input && choice.input !== 'default' ? choice.input : null,
+      sinkId: choice.output || '',
+    });
   } catch (e) {
     btn.disabled = false;
     btn.textContent = 'ENGAGE';
@@ -121,12 +314,19 @@ async function engage() {
 
   initApp();
 
-  // Ask for MIDI only after audio is live, so the two prompts are sequential.
-  midi.load();
+  if (engine.sinkId !== (choice.output || '')) {
+    toast('Saved output is gone — using the system default');
+    prefs.sinkId = ''; savePrefs();
+  }
+
+  // If MIDI was not enabled on the start screen, ask now that audio is live,
+  // so the two permission prompts never stack.
+  const wasGranted = midi.state === 'granted';
   const got = await midi.connect();
+  if (got && !wasGranted) midi.selectOnly(choice.midi);
   refreshMidi();
-  if (got) {
-    const n = midi.inputs.length;
+  if (got && choice.midi !== 'none') {
+    const n = midi.inputs.filter(i => midi.enabled.has(i.id)).length;
     toast(n ? `MIDI ready — ${n} input${n > 1 ? 's' : ''}` : 'MIDI ready — no devices found',
           n ? 'good' : '');
   } else if (midi.state === 'denied') {

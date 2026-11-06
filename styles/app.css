@@ -92,26 +92,51 @@ button { cursor: pointer; }
   .boot-card { animation: none; }
 }
 
-.boot h1 {
-  margin: 0; font-size: 42px; font-weight: 700;
-  letter-spacing: .14em; line-height: 1;
-}
-.boot-sub {
-  margin: 16px 0 0; color: var(--txt-dim); font-size: 13px; line-height: 1.6;
-}
 .boot-warn {
-  margin: 26px 0 0; padding: 11px 14px;
+  margin: 24px 0 0; padding: 11px 14px;
   border: 1px solid rgba(255,157,61,.3);
   background: rgba(255,157,61,.07);
   border-radius: 8px; font-size: 12px; color: #ffd9a3;
 }
 .boot-warn b { color: var(--warm); }
 
-.boot-field { margin: 24px 0 0; display: grid; gap: 8px; justify-items: center; }
-.boot-field > label {
-  font-size: 9px; letter-spacing: .14em; color: var(--txt-faint); text-transform: uppercase;
+/* Label column + control column. Every control spans the full column, so the
+   buffer buttons get real width instead of shrink-wrapping to their text. */
+.boot-form {
+  margin: 22px 0 0;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 10px 14px;
+  align-items: center;
+  text-align: left;
 }
-.boot-field small { color: var(--txt-faint); font-size: 11px; min-height: 1.2em; }
+.boot-label {
+  font-size: 9px; letter-spacing: .14em; color: var(--txt-faint);
+  text-transform: uppercase;
+}
+.boot-slot { min-width: 0; }
+.boot-form .select {
+  width: 100%; max-width: none;
+  padding: 8px 10px; font-size: 12px;
+  text-overflow: ellipsis;
+}
+.boot-form .select:disabled { color: var(--txt-faint); cursor: not-allowed; }
+.boot-form .seg-row { width: 100%; }
+.boot-form .seg-btn { padding: 7px 6px; font-size: 10px; white-space: nowrap; }
+.boot-hint {
+  grid-column: 2; margin-top: -4px;
+  font-size: 11px; color: var(--txt-faint); min-height: 1.2em;
+}
+.boot-pick {
+  width: 100%; text-align: left;
+  padding: 8px 14px;   /* matches the select's text inset */
+  background: var(--sunk);
+  border: 1px dashed #2c3340; border-radius: 7px;
+  font-size: 12px; color: var(--txt-dim);
+  transition: color .15s ease, border-color .15s ease;
+}
+.boot-pick:hover { color: var(--cool); border-color: rgba(61,219,255,.45); }
+.boot-pick[disabled] { cursor: wait; opacity: .6; }
 
 .engage {
   margin: 26px auto 0; display: block;
@@ -127,7 +152,6 @@ button { cursor: pointer; }
 .engage:active { transform: translateY(1px); }
 .engage[disabled] { filter: grayscale(.7) brightness(.6); cursor: wait; }
 
-.boot-note { margin: 18px 0 0; color: var(--txt-faint); font-size: 11px; line-height: 1.6; }
 .boot-error {
   margin: 18px 0 0; padding: 11px 14px; border-radius: 8px;
   border: 1px solid rgba(255,86,97,.4); background: rgba(255,86,97,.09);

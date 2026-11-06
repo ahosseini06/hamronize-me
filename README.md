@@ -156,6 +156,8 @@ HeapNumber, and that boxing was measurably the only garbage this path produced.
 
 ## Playing it
 
+- **Start screen** — pick the microphone, MIDI device (one, all, or none),
+  output device and buffer size before engaging. Choices are remembered.
 - **Keys** — `Z`–`M` and `Q`–`P` play two octaves; `-` / `=` shift octave.
   Click and drag the on-screen keyboard to glissando.
 - **Knobs** — drag vertically, `Shift` for fine, double-click to reset,
