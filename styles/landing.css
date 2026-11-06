@@ -112,7 +112,6 @@ kbd {
 }
 .cta:hover { transform: translateY(-1px); box-shadow: 0 14px 36px -10px rgba(255,157,61,.7); }
 .cta:active { transform: translateY(1px); }
-.cta-note { font-size: 13px; color: var(--txt-faint); }
 
 /* ── screenshot */
 .shot { margin: 56px 0 0; }
