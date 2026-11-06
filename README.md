@@ -248,6 +248,13 @@ again at 820 px.
 
 ---
 
+## License
+
+MIT. See [LICENSE](LICENSE).
+
+The reverb uses the Schroeder/Freeverb comb and allpass topology, whose tuning
+constants come from Jezar at Dreampoint's public-domain Freeverb.
+
 ## Browser support
 
 Chrome/Edge only, by design. It needs AudioWorklet, Web MIDI (Chromium-only),

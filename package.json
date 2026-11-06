@@ -1,7 +1,6 @@
 {
   "name": "vox-machina",
   "version": "1.0.0",
-  "private": true,
   "description": "Live performance channel vocoder for Chrome. Mic in, MIDI in, all DSP on the audio render thread.",
   "type": "module",
   "scripts": {
@@ -10,5 +9,9 @@
     "test:dsp": "node --expose-gc test/dsp.test.mjs",
     "test:browser": "node test/browser.test.mjs"
   },
-  "engines": { "node": ">=20" }
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "author": "Ali Hosseini"
 }
