@@ -5,11 +5,39 @@ polyphonic MIDI synth is the carrier, and every sample of DSP runs on the audio
 render thread.
 
 ```bash
-node server.mjs      # http://localhost:5173
+node server.mjs
+#   landing     http://localhost:5173/
+#   instrument  http://localhost:5173/app
 ```
 
 No build step, no dependencies. Chrome will ask for the microphone, then MIDI.
 **Use headphones** — open speakers feed the vocoder back into itself.
+
+```
+/                     landing page
+/app                  the instrument
+/src                  main-thread code: engine, MIDI, UI
+/worklet              the DSP, loadable in bare Node for testing
+/styles  /assets      stylesheets, screenshot
+server.mjs            dev server (sets the isolation headers)
+vercel.json           the same headers for static hosting
+```
+
+### Hosting it
+
+Two requirements beyond serving files. Microphone capture and Web MIDI need a
+secure context, so HTTPS or `localhost`. And `SharedArrayBuffer` needs the
+page to be **cross-origin isolated**, which means the instrument document must
+be served with:
+
+```
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: credentialless
+```
+
+`vercel.json` sets these on `/app`; `server.mjs` does the same locally. Without
+them the app still runs — it falls back to `postMessage` — and the `BUS` pill
+in the header reads `MESSAGE` instead of `SHARED` so you can tell at a glance.
 
 ---
 
@@ -190,12 +218,13 @@ ping-pong alternating channels, reverb tails decaying and responding to size
 and damping, predelay holding the onset back, and — importantly — that neither
 bus leaks into the other.
 
-**63 end-to-end tests** (`test/browser.test.mjs`) drive real Chrome over the
+**65 end-to-end tests** (`test/browser.test.mjs`) drive real Chrome over the
 DevTools Protocol with a fake capture device, so the whole mic → DSP → output
 path executes. They check the audio graph comes up, signal actually reaches the
 bank, parameter changes land on the render thread, pointer drags and key
 presses do the right thing, sheets and presets work, the buffer can be switched
-without killing audio, the LFOs actually run and their indicators move, both
+without killing audio, the landing page serves and links through, the LFOs
+actually run and their indicators move, both
 effect busses stay finite and audible, reverb tails outlive the notes, nothing
 overflows or is clipped by its layout, and the console stays clean.
 

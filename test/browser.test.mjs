@@ -9,7 +9,8 @@ import { join } from 'node:path';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = Number(process.env.PORT || 5199);
 const CDP_PORT = Number(process.env.CDP_PORT || 9311);
-const URL_ = `http://localhost:${PORT}/`;
+const BASE = `http://localhost:${PORT}/`;
+const URL_ = BASE + 'app';
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => {
@@ -90,12 +91,16 @@ try {
     await sleep(100);
   }
   const probe = await fetch(URL_);
-  ok('server serves the app', probe.ok, `status=${probe.status}`);
+  ok('server serves the app at /app', probe.ok, `status=${probe.status}`);
+  const landing = await fetch(BASE);
+  const landingHtml = await landing.text();
+  ok('landing page serves at the root', landing.ok, `status=${landing.status}`);
+  ok('landing links to the instrument', /href="\/app"/.test(landingHtml));
   ok('cross-origin isolation headers present',
      probe.headers.get('cross-origin-opener-policy') === 'same-origin' &&
      /credentialless|require-corp/.test(probe.headers.get('cross-origin-embedder-policy') || ''),
      `coep=${probe.headers.get('cross-origin-embedder-policy')}`);
-  const wk = await fetch(URL_ + 'worklet/vocoder-processor.js');
+  const wk = await fetch(BASE + 'worklet/vocoder-processor.js');
   ok('worklet served as JavaScript',
      (wk.headers.get('content-type') || '').includes('javascript'),
      wk.headers.get('content-type'));

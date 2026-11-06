@@ -66,7 +66,10 @@ export class Engine extends EventTarget {
     this.ctx = new AudioContext({ latencyHint: mode.hint });
     if (this.ctx.state === 'suspended') await this.ctx.resume();
 
-    await this.ctx.audioWorklet.addModule('./worklet/vocoder-processor.js');
+    // Relative to this module, not to the document, so moving the page (or
+    // serving the site from a subpath) cannot break the worklet load.
+    const workletUrl = new URL('../../worklet/vocoder-processor.js', import.meta.url);
+    await this.ctx.audioWorklet.addModule(workletUrl);
 
     this._initTransport();
 

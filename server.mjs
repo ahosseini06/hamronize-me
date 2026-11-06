@@ -35,15 +35,20 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    const info = await stat(target).catch(() => null);
+    let info = await stat(target).catch(() => null);
+    let file = target;
+    if (info && info.isDirectory()) {
+      file = join(target, 'index.html');
+      info = await stat(file).catch(() => null);
+    }
     if (!info || !info.isFile()) {
       res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
       return;
     }
 
-    const body = await readFile(target);
+    const body = await readFile(file);
     res.writeHead(200, {
-      'Content-Type': MIME[extname(target).toLowerCase()] || 'application/octet-stream',
+      'Content-Type': MIME[extname(file).toLowerCase()] || 'application/octet-stream',
       'Content-Length': body.length,
       // crossOriginIsolated => SharedArrayBuffer. `credentialless` keeps
       // no-cors subresources (e.g. webfonts) loadable without CORP headers.
@@ -58,7 +63,7 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  VOX MACHINA  ->  http://localhost:${PORT}\n`);
+  console.log(`\n  VOX MACHINA\n    landing     http://localhost:${PORT}/\n    instrument  http://localhost:${PORT}/app\n`);
   console.log('  Cross-origin isolated (SharedArrayBuffer enabled).');
   console.log('  Use headphones. Ctrl-C to stop.\n');
 });
